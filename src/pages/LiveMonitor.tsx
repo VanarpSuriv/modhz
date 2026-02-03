@@ -15,7 +15,8 @@ import {
   VideoOff,
   Camera,
   Activity,
-  UserPlus
+  UserPlus,
+  CheckCircle2 // Imported for the Present icon
 } from "lucide-react";
 import { getCurrentPeriod, getSubjectName } from "@/data/timetable";
 import { toast } from "sonner";
@@ -27,7 +28,14 @@ interface Incident {
   type: "bunk" | "late" | "unauthorized";
 }
 
-// Mock data for the attendance logs
+interface AttendanceRecord {
+  id: string;
+  studentName: string;
+  time: string;
+  status: "Present";
+}
+
+// Mock data for the aggregate attendance logs
 const ATTENDANCE_LOGS = [
   { subject: "CS101", attended: 54, total: 60 },
   { subject: "EE207", attended: 42, total: 45 },
@@ -39,9 +47,12 @@ export default function LiveMonitor() {
   const [backendUrl, setBackendUrl] = useState("http://localhost:5001");
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  
+  // State for tracking lists
   const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [liveAttendance, setLiveAttendance] = useState<AttendanceRecord[]>([]); // New state for Present students
+  
   const [currentClass, setCurrentClass] = useState<{ period: number; subject: string | null; day: string } | null>(null);
-  const [recognizedStudents, setRecognizedStudents] = useState<string[]>([]);
   const [isWebcamActive, setIsWebcamActive] = useState(false);
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -58,7 +69,7 @@ export default function LiveMonitor() {
     };
     
     updateCurrentClass();
-    const interval = setInterval(updateCurrentClass, 30000); // Update every 30 seconds
+    const interval = setInterval(updateCurrentClass, 30000);
     
     return () => clearInterval(interval);
   }, []);
@@ -77,8 +88,6 @@ export default function LiveMonitor() {
     toast.info(`Connecting to ${backendUrl}...`);
     
     try {
-      // Try to fetch from the backend to verify connection
-      // Note: We're just checking if we can hit the endpoint
       await fetch(`${backendUrl}/video_feed`, {
         method: 'HEAD',
         mode: 'no-cors',
@@ -89,7 +98,6 @@ export default function LiveMonitor() {
       toast.success(`Connected to backend at ${backendUrl}`);
     } catch (error) {
       console.error('Connection error:', error);
-      // Even if HEAD fails due to CORS, we set the URL as an image source usually works
       setStreamUrl(`${backendUrl}/video_feed`);
       setIsConnected(true);
       toast.success(`Connected to backend at ${backendUrl}`);
@@ -101,7 +109,6 @@ export default function LiveMonitor() {
   const handleDisconnect = () => {
     setIsConnected(false);
     setStreamUrl(null);
-    setRecognizedStudents([]);
     toast.info("Disconnected from backend");
   };
 
@@ -141,19 +148,33 @@ export default function LiveMonitor() {
   };
 
   const handleSimulate = () => {
-    const mockStudents = ["Pranav A", "Raghuraman R", "Shivani T", "Kumar S", "Priya M"];
-    const randomStudents = mockStudents.slice(0, Math.floor(Math.random() * 5) + 1);
-    setRecognizedStudents(randomStudents);
+    const mockStudents = ["Pranav A", "Raghuraman R", "Shivani T", "Kumar S", "Priya M", "Ananya K", "Rahul V"];
     
+    // 1. Simulate a Student being Present (Recognized)
+    const randomStudent = mockStudents[Math.floor(Math.random() * mockStudents.length)];
+    const newAttendance: AttendanceRecord = {
+      id: Date.now().toString(),
+      studentName: randomStudent,
+      time: new Date().toLocaleTimeString(),
+      status: "Present"
+    };
+    
+    // Add to top of list, keep only last 20
+    setLiveAttendance(prev => [newAttendance, ...prev].slice(0, 20));
+    
+    // 2. Occasionally simulate a Bunk incident (30% chance)
     if (Math.random() > 0.7) {
+      const badStudent = mockStudents[Math.floor(Math.random() * mockStudents.length)];
       const newIncident: Incident = {
-        id: Date.now().toString(),
-        studentName: mockStudents[Math.floor(Math.random() * mockStudents.length)],
+        id: (Date.now() + 1).toString(),
+        studentName: badStudent,
         time: new Date().toLocaleTimeString(),
         type: "bunk",
       };
       setIncidents((prev) => [newIncident, ...prev].slice(0, 10));
       toast.warning(`Bunking detected: ${newIncident.studentName}`);
+    } else {
+        toast.success(`Recognized: ${randomStudent}`);
     }
   };
 
@@ -254,8 +275,9 @@ export default function LiveMonitor() {
 
         {/* Main Content Grid (Video + Incidents) */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Live Feed */}
-          <Card className="lg:col-span-2 bg-card border-border card-glow">
+          
+          {/* Live Feed - Takes up 2 Columns */}
+          <Card className="lg:col-span-2 bg-card border-border card-glow h-fit">
             <CardHeader className="flex flex-row items-center justify-between pb-4">
               <div className="flex items-center gap-2">
                 <Video className="h-5 w-5 text-primary" />
@@ -283,7 +305,6 @@ export default function LiveMonitor() {
                     className="w-full h-full object-cover"
                   />
                 ) : isConnected && streamUrl ? (
-                  /* MODIFIED: REMOVED THE OVERLAY DIV HERE */
                   <div className="relative w-full h-full">
                     <img
                       src={streamUrl}
@@ -311,56 +332,97 @@ export default function LiveMonitor() {
             </CardContent>
           </Card>
 
-          {/* Incident List */}
-          <Card className="bg-card border-border">
-            <CardHeader className="flex flex-row items-center justify-between pb-4">
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="h-5 w-5 text-destructive" />
-                <CardTitle className="text-lg">INCIDENT LIST</CardTitle>
-              </div>
-              <Badge variant="secondary" className="text-xs">
-                {incidents.length} ITEMS
-              </Badge>
-            </CardHeader>
-            <CardContent>
-              {incidents.length === 0 ? (
-                <div className="py-12 text-center">
-                  <p className="text-muted-foreground font-medium">NO ACTIVE VIOLATIONS</p>
+          {/* Right Column: Live Attendance & Incidents */}
+          <div className="space-y-6">
+            
+            {/* 1. Live Attendance List (New) */}
+            <Card className="bg-card border-border">
+              <CardHeader className="flex flex-row items-center justify-between pb-4">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                  <CardTitle className="text-lg">LIVE ATTENDANCE</CardTitle>
                 </div>
-              ) : (
-                <div className="space-y-3 max-h-[400px] overflow-y-auto">
-                  {incidents.map((incident) => (
-                    <div
-                      key={incident.id}
-                      className="p-3 rounded-lg bg-destructive/10 border border-destructive/20"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium text-foreground">
-                          {incident.studentName}
-                        </span>
-                        <Badge className="status-bunk text-xs">
-                          {incident.type.toUpperCase()}
+                <Badge variant="secondary" className="text-xs bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20">
+                  {liveAttendance.length} PRESENT
+                </Badge>
+              </CardHeader>
+              <CardContent>
+                {liveAttendance.length === 0 ? (
+                  <div className="py-8 text-center border-2 border-dashed border-muted rounded-lg">
+                    <p className="text-sm text-muted-foreground">Waiting for faces...</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2">
+                    {liveAttendance.map((record) => (
+                      <div
+                        key={record.id}
+                        className="p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/20 flex items-center justify-between"
+                      >
+                        <div>
+                          <p className="font-medium text-foreground text-sm">{record.studentName}</p>
+                          <p className="text-xs text-muted-foreground">{record.time}</p>
+                        </div>
+                        <Badge className="bg-emerald-500 hover:bg-emerald-600 text-white text-[10px] uppercase">
+                          Present
                         </Badge>
                       </div>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Detected at {incident.time}
-                      </p>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* 2. Incident List */}
+            <Card className="bg-card border-border">
+              <CardHeader className="flex flex-row items-center justify-between pb-4">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-5 w-5 text-destructive" />
+                  <CardTitle className="text-lg">INCIDENT LIST</CardTitle>
                 </div>
-              )}
-            </CardContent>
-          </Card>
+                <Badge variant="secondary" className="text-xs">
+                  {incidents.length} ALERTS
+                </Badge>
+              </CardHeader>
+              <CardContent>
+                {incidents.length === 0 ? (
+                  <div className="py-8 text-center">
+                    <p className="text-muted-foreground font-medium text-sm">NO ACTIVE VIOLATIONS</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2">
+                    {incidents.map((incident) => (
+                      <div
+                        key={incident.id}
+                        className="p-3 rounded-lg bg-destructive/10 border border-destructive/20"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium text-foreground text-sm">
+                            {incident.studentName}
+                          </span>
+                          <Badge className="status-bunk text-[10px]">
+                            {incident.type.toUpperCase()}
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Detected at {incident.time}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         </div>
 
-        {/* --- NEW SECTION START (Attendance Logs + Fast Exemption) --- */}
+        {/* --- BOTTOM SECTION (Aggregate Logs + Fast Exemption) --- */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           
           {/* Attendance Logs */}
           <Card className="bg-card border-border">
             <CardHeader className="flex flex-row items-center gap-2 pb-2">
               <Activity className="h-5 w-5 text-emerald-400" />
-              <CardTitle className="text-lg tracking-wide">ATTENDANCE LOGS</CardTitle>
+              <CardTitle className="text-lg tracking-wide">CLASS LOGS</CardTitle>
             </CardHeader>
             <CardContent className="space-y-6 pt-4">
               {ATTENDANCE_LOGS.map((log) => (
@@ -419,8 +481,6 @@ export default function LiveMonitor() {
           </Card>
 
         </div>
-        {/* --- NEW SECTION END --- */}
-
       </div>
     </DashboardLayout>
   );
