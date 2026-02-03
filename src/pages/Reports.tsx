@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -9,7 +10,10 @@ import {
   Mail,
   AlertTriangle,
   CheckCircle,
+  Loader2,
 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 const reports = [
   {
@@ -78,7 +82,124 @@ const absenteeHistory = [
   },
 ];
 
+// Function to generate a simple PDF as base64
+const generateFakeReportPDF = (reportTitle: string): string => {
+  // This creates a simple PDF-like structure
+  const pdfContent = `
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
+endobj
+4 0 obj
+<< /Length 200 >>
+stream
+BT
+/F1 24 Tf
+50 700 Td
+(Smart Campus Attendance Report) Tj
+0 -40 Td
+/F1 14 Tf
+(${reportTitle}) Tj
+0 -30 Td
+(Generated: ${new Date().toLocaleString()}) Tj
+0 -30 Td
+(Subject: IT22201 - Data Structures) Tj
+0 -30 Td
+(Total Students: 60) Tj
+0 -30 Td
+(Present: 55) Tj
+0 -30 Td
+(Absent: 5) Tj
+0 -30 Td
+(Attendance Rate: 91.67%) Tj
+0 -50 Td
+(Absentees:) Tj
+0 -25 Td
+(1. Rishe H - Roll No: 85) Tj
+0 -20 Td
+(2. Shivvani T - Roll No: 103) Tj
+0 -20 Td
+(3. Srivatsan S - Roll No: 93) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000266 00000 n 
+0000000520 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+600
+%%EOF
+`;
+  return pdfContent;
+};
+
+const downloadPDF = (filename: string, reportTitle: string) => {
+  const pdfContent = generateFakeReportPDF(reportTitle);
+  const blob = new Blob([pdfContent], { type: 'application/pdf' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast.success(`Downloaded ${filename}`);
+};
+
 export default function Reports() {
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  const handleGenerateReport = async () => {
+    setIsGenerating(true);
+    toast.info("Generating and sending report...");
+
+    try {
+      const { data, error } = await supabase.functions.invoke('send-notification-email', {
+        body: {
+          type: 'absentee',
+          subject: 'IT22201 - Data Structures',
+          time: '12:45 PM – 1:05 PM',
+          absentees: [
+            { name: 'Rishe H', rollNo: '85' },
+            { name: 'Shivvani T', rollNo: '103' },
+            { name: 'Srivatsan S', rollNo: '93' },
+          ],
+          bunkingStudent: {
+            name: 'Modhini V',
+            time: '12:45 PM – 1:05 PM',
+            duration: '20 minutes'
+          }
+        }
+      });
+
+      if (error) throw error;
+      
+      toast.success("✅ Email sent successfully to pilotpranav2007@gmail.com");
+    } catch (error) {
+      console.error('Error sending email:', error);
+      toast.error("Failed to send email. Check console for details.");
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
   return (
     <DashboardLayout>
       <div className="p-6 space-y-6 animate-fade-in">
@@ -90,9 +211,17 @@ export default function Reports() {
               View attendance reports and email notification history
             </p>
           </div>
-          <Button className="gap-2 bg-primary hover:bg-primary/90">
-            <FileText className="h-4 w-4" />
-            Generate Report
+          <Button 
+            className="gap-2 bg-primary hover:bg-primary/90"
+            onClick={handleGenerateReport}
+            disabled={isGenerating}
+          >
+            {isGenerating ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <FileText className="h-4 w-4" />
+            )}
+            {isGenerating ? "Sending..." : "Generate Report"}
           </Button>
         </div>
 
@@ -159,7 +288,12 @@ export default function Reports() {
                           "Ready"
                         )}
                       </Badge>
-                      <Button variant="ghost" size="icon" className="h-8 w-8">
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="h-8 w-8"
+                        onClick={() => downloadPDF(`${report.title.replace(/\s+/g, '_')}.pdf`, report.title)}
+                      >
                         <Download className="h-4 w-4" />
                       </Button>
                     </div>

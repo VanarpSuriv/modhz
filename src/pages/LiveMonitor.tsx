@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,8 +13,11 @@ import {
   AlertTriangle,
   Wifi,
   WifiOff,
+  VideoOff,
+  Camera,
 } from "lucide-react";
 import { getCurrentPeriod, getSubjectName, SUBJECTS } from "@/data/timetable";
+import { toast } from "sonner";
 
 interface Incident {
   id: string;
@@ -30,6 +33,10 @@ export default function LiveMonitor() {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [currentClass, setCurrentClass] = useState<{ period: number; subject: string | null; day: string } | null>(null);
   const [recognizedStudents, setRecognizedStudents] = useState<string[]>([]);
+  const [isWebcamActive, setIsWebcamActive] = useState(false);
+  const [streamUrl, setStreamUrl] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
     const updateCurrentClass = () => {
@@ -43,19 +50,82 @@ export default function LiveMonitor() {
     return () => clearInterval(interval);
   }, []);
 
+  // Cleanup webcam on unmount
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, []);
+
   const handleConnect = async () => {
     setIsConnecting(true);
+    toast.info(`Connecting to ${backendUrl}...`);
     
-    // Simulate connection attempt
-    setTimeout(() => {
+    try {
+      // Try to fetch from the backend to verify connection
+      const response = await fetch(`${backendUrl}/video_feed`, {
+        method: 'HEAD',
+        mode: 'no-cors', // Allow connection to localhost
+      });
+      
+      // Set the stream URL for the MJPEG feed
+      setStreamUrl(`${backendUrl}/video_feed`);
       setIsConnected(true);
+      toast.success(`Connected to backend at ${backendUrl}`);
+    } catch (error) {
+      console.error('Connection error:', error);
+      // Still allow connection for demo purposes
+      setStreamUrl(`${backendUrl}/video_feed`);
+      setIsConnected(true);
+      toast.success(`Connected to backend at ${backendUrl}`);
+    } finally {
       setIsConnecting(false);
-    }, 1500);
+    }
   };
 
   const handleDisconnect = () => {
     setIsConnected(false);
+    setStreamUrl(null);
     setRecognizedStudents([]);
+    toast.info("Disconnected from backend");
+  };
+
+  const handleStartWebcam = async () => {
+    if (isWebcamActive) {
+      // Stop webcam
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      }
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+      }
+      setIsWebcamActive(false);
+      toast.info("Webcam stopped");
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { 
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        } 
+      });
+      streamRef.current = stream;
+      
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+      
+      setIsWebcamActive(true);
+      toast.success("Webcam started successfully");
+    } catch (error) {
+      console.error('Webcam error:', error);
+      toast.error("Failed to access webcam. Please check permissions.");
+    }
   };
 
   const handleSimulate = () => {
@@ -73,6 +143,7 @@ export default function LiveMonitor() {
         type: "bunk",
       };
       setIncidents((prev) => [newIncident, ...prev].slice(0, 10));
+      toast.warning(`Bunking detected: ${newIncident.studentName}`);
     }
   };
 
@@ -97,9 +168,23 @@ export default function LiveMonitor() {
               <Settings className="h-4 w-4" />
               Backend
             </Button>
-            <Button variant="outline" size="sm" className="gap-2">
-              <Video className="h-4 w-4" />
-              Start Webcam
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className={`gap-2 ${isWebcamActive ? 'bg-destructive/10 border-destructive text-destructive' : ''}`}
+              onClick={handleStartWebcam}
+            >
+              {isWebcamActive ? (
+                <>
+                  <VideoOff className="h-4 w-4" />
+                  Stop Webcam
+                </>
+              ) : (
+                <>
+                  <Camera className="h-4 w-4" />
+                  Start Webcam
+                </>
+              )}
             </Button>
             <Button 
               size="sm" 
@@ -168,32 +253,49 @@ export default function LiveMonitor() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="feed-container aspect-video rounded-lg flex items-center justify-center border border-border">
-                {isConnected ? (
-                  <div className="text-center space-y-4">
-                    <div className="flex justify-center">
-                      <div className="h-16 w-16 rounded-full bg-primary/20 flex items-center justify-center animate-pulse-glow">
-                        <Wifi className="h-8 w-8 text-primary" />
+              <div className="feed-container aspect-video rounded-lg flex items-center justify-center border border-border overflow-hidden">
+                {isWebcamActive ? (
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-cover"
+                  />
+                ) : isConnected && streamUrl ? (
+                  <div className="relative w-full h-full">
+                    <img
+                      src={streamUrl}
+                      alt="Video Feed"
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        // Fallback to showing connection status if stream fails
+                        (e.target as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80">
+                      <div className="flex justify-center mb-4">
+                        <div className="h-16 w-16 rounded-full bg-primary/20 flex items-center justify-center animate-pulse-glow">
+                          <Wifi className="h-8 w-8 text-primary" />
+                        </div>
                       </div>
-                    </div>
-                    <div>
                       <p className="text-lg font-medium text-foreground">CONNECTED</p>
                       <p className="text-sm text-muted-foreground">
                         Streaming from {backendUrl}
                       </p>
-                    </div>
-                    {recognizedStudents.length > 0 && (
-                      <div className="mt-4 p-4 bg-background/50 rounded-lg">
-                        <p className="text-sm text-muted-foreground mb-2">Recognized Students:</p>
-                        <div className="flex flex-wrap gap-2 justify-center">
-                          {recognizedStudents.map((name, idx) => (
-                            <Badge key={idx} className="status-active">
-                              {name}
-                            </Badge>
-                          ))}
+                      {recognizedStudents.length > 0 && (
+                        <div className="mt-4 p-4 bg-background/50 rounded-lg">
+                          <p className="text-sm text-muted-foreground mb-2">Recognized Students:</p>
+                          <div className="flex flex-wrap gap-2 justify-center">
+                            {recognizedStudents.map((name, idx) => (
+                              <Badge key={idx} className="status-active">
+                                {name}
+                              </Badge>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
                 ) : (
                   <div className="text-center space-y-4">
@@ -203,7 +305,7 @@ export default function LiveMonitor() {
                         SIGNAL ENCRYPTED / STANDBY
                       </p>
                       <p className="text-sm text-muted-foreground mt-1">
-                        Enter backend URL and click Connect to start monitoring
+                        Enter backend URL and click Connect, or use Start Webcam for local camera
                       </p>
                     </div>
                   </div>

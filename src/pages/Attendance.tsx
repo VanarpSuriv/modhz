@@ -11,8 +11,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { CalendarCheck, Search, Download, Filter } from "lucide-react";
+import { CalendarCheck, Search, Download, Filter, Loader2 } from "lucide-react";
 import { SUBJECTS } from "@/data/timetable";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 const mockAttendance = [
   { date: "2026-01-27", subject: "IT22201", present: 55, absent: 5, percentage: 92 },
@@ -32,9 +34,128 @@ const studentAttendance = [
   { rollNo: "70", name: "Arun K", present: 38, total: 48, percentage: 79 },
 ];
 
+// Function to generate a simple PDF content
+const generateAttendancePDF = (): string => {
+  const pdfContent = `
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
+endobj
+4 0 obj
+<< /Length 500 >>
+stream
+BT
+/F1 24 Tf
+50 750 Td
+(SVCE IT - Attendance Report) Tj
+0 -40 Td
+/F1 12 Tf
+(Subject: IT22201 - Data Structures) Tj
+0 -25 Td
+(Generated: ${new Date().toLocaleString()}) Tj
+0 -35 Td
+/F1 14 Tf
+(Attendance Summary) Tj
+0 -25 Td
+/F1 11 Tf
+(Total Students: 60) Tj
+0 -20 Td
+(Present: 55) Tj
+0 -20 Td
+(Absent: 5) Tj
+0 -20 Td
+(Attendance Rate: 91.67%) Tj
+0 -35 Td
+/F1 14 Tf
+(Absentee List:) Tj
+0 -25 Td
+/F1 11 Tf
+(1. Rishe H - Roll No: 85 - Email: rishe@svce.ac.in) Tj
+0 -18 Td
+(2. Shivvani T - Roll No: 103 - Email: shivvani@svce.ac.in) Tj
+0 -18 Td
+(3. Srivatsan S - Roll No: 93 - Email: srivatsan@svce.ac.in) Tj
+0 -18 Td
+(4. Kumar S - Roll No: 68 - Email: kumar@svce.ac.in) Tj
+0 -18 Td
+(5. Arun K - Roll No: 70 - Email: arun@svce.ac.in) Tj
+0 -35 Td
+/F1 10 Tf
+(Note: This report has been automatically sent to pilotpranav2007@gmail.com) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000266 00000 n 
+0000000820 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+900
+%%EOF
+`;
+  return pdfContent;
+};
+
 export default function Attendance() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedSubject, setSelectedSubject] = useState<string>("all");
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExportReport = async () => {
+    setIsExporting(true);
+    toast.info("Generating and sending attendance report...");
+
+    try {
+      // Generate PDF content
+      const pdfContent = generateAttendancePDF();
+      const base64Content = btoa(pdfContent);
+
+      // Call edge function to send email with PDF
+      const { data, error } = await supabase.functions.invoke('send-report-email', {
+        body: {
+          reportType: 'absentee',
+          pdfBase64: base64Content,
+          pdfFilename: 'absentees_IT22201.pdf',
+          subject: 'Absentee Report PDF - IT22201'
+        }
+      });
+
+      if (error) throw error;
+
+      // Also download the PDF locally
+      const blob = new Blob([pdfContent], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'absentees_IT22201.pdf';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      toast.success("✅ Email with PDF sent successfully to pilotpranav2007@gmail.com");
+    } catch (error) {
+      console.error('Error exporting report:', error);
+      toast.error("Failed to send email. Check console for details.");
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   return (
     <DashboardLayout>
@@ -47,9 +168,17 @@ export default function Attendance() {
               Track and manage student attendance across all subjects
             </p>
           </div>
-          <Button className="gap-2 bg-primary hover:bg-primary/90">
-            <Download className="h-4 w-4" />
-            Export Report
+          <Button 
+            className="gap-2 bg-primary hover:bg-primary/90"
+            onClick={handleExportReport}
+            disabled={isExporting}
+          >
+            {isExporting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4" />
+            )}
+            {isExporting ? "Sending..." : "Export Report"}
           </Button>
         </div>
 
