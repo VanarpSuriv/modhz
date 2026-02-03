@@ -4,16 +4,34 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import {
   Users,
   Search,
   Plus,
   MoreHorizontal,
   Mail,
-  Phone,
 } from "lucide-react";
+import { toast } from "sonner";
 
-const students = [
+interface Student {
+  rollNo: string;
+  name: string;
+  email: string;
+  attendance: number;
+  status: "active" | "warning" | "critical";
+}
+
+const initialStudents: Student[] = [
   { rollNo: "61", name: "Aarthi S", email: "aarthi@svce.ac.in", attendance: 92, status: "active" },
   { rollNo: "62", name: "Abishek K", email: "abishek@svce.ac.in", attendance: 88, status: "active" },
   { rollNo: "67", name: "Pranav A", email: "pranav@svce.ac.in", attendance: 94, status: "active" },
@@ -26,12 +44,49 @@ const students = [
 
 export default function StudentManagement() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [students, setStudents] = useState<Student[]>(initialStudents);
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [newStudent, setNewStudent] = useState({
+    rollNo: "",
+    name: "",
+    email: "",
+  });
 
   const filteredStudents = students.filter(
     (student) =>
       student.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       student.rollNo.includes(searchQuery)
   );
+
+  const handleAddStudent = () => {
+    if (!newStudent.rollNo || !newStudent.name || !newStudent.email) {
+      toast.error("Please fill in all fields");
+      return;
+    }
+
+    // Check for duplicate roll number
+    if (students.some(s => s.rollNo === newStudent.rollNo)) {
+      toast.error("A student with this roll number already exists");
+      return;
+    }
+
+    const studentToAdd: Student = {
+      rollNo: newStudent.rollNo,
+      name: newStudent.name,
+      email: newStudent.email,
+      attendance: 100, // New students start with 100% attendance
+      status: "active",
+    };
+
+    setStudents([...students, studentToAdd]);
+    setNewStudent({ rollNo: "", name: "", email: "" });
+    setIsAddDialogOpen(false);
+    toast.success(`Student ${newStudent.name} added successfully`);
+  };
+
+  const totalStudents = students.length;
+  const activeStudents = students.filter(s => s.attendance >= 75).length;
+  const atRiskStudents = students.filter(s => s.attendance < 75).length;
 
   return (
     <DashboardLayout>
@@ -44,10 +99,58 @@ export default function StudentManagement() {
               Manage student records and face recognition data
             </p>
           </div>
-          <Button className="gap-2 bg-primary hover:bg-primary/90">
-            <Plus className="h-4 w-4" />
-            Add Student
-          </Button>
+          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+            <DialogTrigger asChild>
+              <Button className="gap-2 bg-primary hover:bg-primary/90">
+                <Plus className="h-4 w-4" />
+                Add Student
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[425px]">
+              <DialogHeader>
+                <DialogTitle>Add New Student</DialogTitle>
+                <DialogDescription>
+                  Enter the student details below. The student will be added to the face recognition system.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="grid gap-4 py-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="rollNo">Roll Number</Label>
+                  <Input
+                    id="rollNo"
+                    placeholder="e.g., 102"
+                    value={newStudent.rollNo}
+                    onChange={(e) => setNewStudent({ ...newStudent, rollNo: e.target.value })}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="name">Full Name</Label>
+                  <Input
+                    id="name"
+                    placeholder="e.g., John Doe"
+                    value={newStudent.name}
+                    onChange={(e) => setNewStudent({ ...newStudent, name: e.target.value })}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="email">Email Address</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="e.g., john@svce.ac.in"
+                    value={newStudent.email}
+                    onChange={(e) => setNewStudent({ ...newStudent, email: e.target.value })}
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={handleAddStudent}>Add Student</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
 
         {/* Search */}
@@ -116,7 +219,7 @@ export default function StudentManagement() {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Total Students</p>
-                  <p className="text-2xl font-bold text-foreground">60</p>
+                  <p className="text-2xl font-bold text-foreground">{totalStudents}</p>
                 </div>
               </div>
             </CardContent>
@@ -129,7 +232,7 @@ export default function StudentManagement() {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Active (&gt;75%)</p>
-                  <p className="text-2xl font-bold text-foreground">57</p>
+                  <p className="text-2xl font-bold text-foreground">{activeStudents}</p>
                 </div>
               </div>
             </CardContent>
@@ -142,7 +245,7 @@ export default function StudentManagement() {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">At Risk (&lt;75%)</p>
-                  <p className="text-2xl font-bold text-foreground">3</p>
+                  <p className="text-2xl font-bold text-foreground">{atRiskStudents}</p>
                 </div>
               </div>
             </CardContent>
