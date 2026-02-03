@@ -11,7 +11,6 @@ import {
   PlayCircle,
   Link2,
   AlertTriangle,
-  Wifi,
   WifiOff,
   VideoOff,
   Camera,
@@ -78,7 +77,9 @@ export default function LiveMonitor() {
     toast.info(`Connecting to ${backendUrl}...`);
     
     try {
-      const response = await fetch(`${backendUrl}/video_feed`, {
+      // Try to fetch from the backend to verify connection
+      // Note: We're just checking if we can hit the endpoint
+      await fetch(`${backendUrl}/video_feed`, {
         method: 'HEAD',
         mode: 'no-cors',
       });
@@ -88,6 +89,7 @@ export default function LiveMonitor() {
       toast.success(`Connected to backend at ${backendUrl}`);
     } catch (error) {
       console.error('Connection error:', error);
+      // Even if HEAD fails due to CORS, we set the URL as an image source usually works
       setStreamUrl(`${backendUrl}/video_feed`);
       setIsConnected(true);
       toast.success(`Connected to backend at ${backendUrl}`);
@@ -281,6 +283,7 @@ export default function LiveMonitor() {
                     className="w-full h-full object-cover"
                   />
                 ) : isConnected && streamUrl ? (
+                  /* MODIFIED: REMOVED THE OVERLAY DIV HERE */
                   <div className="relative w-full h-full">
                     <img
                       src={streamUrl}
@@ -290,17 +293,6 @@ export default function LiveMonitor() {
                         (e.target as HTMLImageElement).style.display = 'none';
                       }}
                     />
-                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80">
-                      <div className="flex justify-center mb-4">
-                        <div className="h-16 w-16 rounded-full bg-primary/20 flex items-center justify-center animate-pulse-glow">
-                          <Wifi className="h-8 w-8 text-primary" />
-                        </div>
-                      </div>
-                      <p className="text-lg font-medium text-foreground">CONNECTED</p>
-                      <p className="text-sm text-muted-foreground">
-                        Streaming from {backendUrl}
-                      </p>
-                    </div>
                   </div>
                 ) : (
                   <div className="text-center space-y-4">
@@ -361,7 +353,7 @@ export default function LiveMonitor() {
           </Card>
         </div>
 
-        {/* --- NEW SECTION START (Based on image_664fe5.png) --- */}
+        {/* --- NEW SECTION START (Attendance Logs + Fast Exemption) --- */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           
           {/* Attendance Logs */}
