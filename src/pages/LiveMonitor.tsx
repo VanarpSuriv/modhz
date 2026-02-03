@@ -15,8 +15,10 @@ import {
   WifiOff,
   VideoOff,
   Camera,
+  Activity,
+  UserPlus
 } from "lucide-react";
-import { getCurrentPeriod, getSubjectName, SUBJECTS } from "@/data/timetable";
+import { getCurrentPeriod, getSubjectName } from "@/data/timetable";
 import { toast } from "sonner";
 
 interface Incident {
@@ -25,6 +27,14 @@ interface Incident {
   time: string;
   type: "bunk" | "late" | "unauthorized";
 }
+
+// Mock data for the attendance logs
+const ATTENDANCE_LOGS = [
+  { subject: "CS101", attended: 54, total: 60 },
+  { subject: "EE207", attended: 42, total: 45 },
+  { subject: "MA110", attended: 48, total: 50 },
+  { subject: "BIO150", attended: 36, total: 40 },
+];
 
 export default function LiveMonitor() {
   const [backendUrl, setBackendUrl] = useState("http://localhost:5001");
@@ -37,6 +47,10 @@ export default function LiveMonitor() {
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+
+  // State for Fast Exemption Form
+  const [exemptionName, setExemptionName] = useState("");
+  const [exemptionReason, setExemptionReason] = useState("");
 
   useEffect(() => {
     const updateCurrentClass = () => {
@@ -64,19 +78,16 @@ export default function LiveMonitor() {
     toast.info(`Connecting to ${backendUrl}...`);
     
     try {
-      // Try to fetch from the backend to verify connection
       const response = await fetch(`${backendUrl}/video_feed`, {
         method: 'HEAD',
-        mode: 'no-cors', // Allow connection to localhost
+        mode: 'no-cors',
       });
       
-      // Set the stream URL for the MJPEG feed
       setStreamUrl(`${backendUrl}/video_feed`);
       setIsConnected(true);
       toast.success(`Connected to backend at ${backendUrl}`);
     } catch (error) {
       console.error('Connection error:', error);
-      // Still allow connection for demo purposes
       setStreamUrl(`${backendUrl}/video_feed`);
       setIsConnected(true);
       toast.success(`Connected to backend at ${backendUrl}`);
@@ -94,7 +105,6 @@ export default function LiveMonitor() {
 
   const handleStartWebcam = async () => {
     if (isWebcamActive) {
-      // Stop webcam
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
         streamRef.current = null;
@@ -129,12 +139,10 @@ export default function LiveMonitor() {
   };
 
   const handleSimulate = () => {
-    // Simulate face detection
     const mockStudents = ["Pranav A", "Raghuraman R", "Shivani T", "Kumar S", "Priya M"];
     const randomStudents = mockStudents.slice(0, Math.floor(Math.random() * 5) + 1);
     setRecognizedStudents(randomStudents);
     
-    // Simulate an incident occasionally
     if (Math.random() > 0.7) {
       const newIncident: Incident = {
         id: Date.now().toString(),
@@ -147,9 +155,19 @@ export default function LiveMonitor() {
     }
   };
 
+  const handleAddAuthority = () => {
+    if (!exemptionName || !exemptionReason) {
+      toast.error("Please fill in all fields");
+      return;
+    }
+    toast.success(`Exemption granted for ${exemptionName} (${exemptionReason})`);
+    setExemptionName("");
+    setExemptionReason("");
+  };
+
   return (
     <DashboardLayout>
-      <div className="p-6 space-y-6 animate-fade-in">
+      <div className="p-6 space-y-6 animate-fade-in pb-12">
         {/* Header */}
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-4">
@@ -232,7 +250,7 @@ export default function LiveMonitor() {
           </span>
         </div>
 
-        {/* Main Content Grid */}
+        {/* Main Content Grid (Video + Incidents) */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Live Feed */}
           <Card className="lg:col-span-2 bg-card border-border card-glow">
@@ -253,7 +271,7 @@ export default function LiveMonitor() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="feed-container aspect-video rounded-lg flex items-center justify-center border border-border overflow-hidden">
+              <div className="feed-container aspect-video rounded-lg flex items-center justify-center border border-border overflow-hidden bg-black/40">
                 {isWebcamActive ? (
                   <video
                     ref={videoRef}
@@ -269,7 +287,6 @@ export default function LiveMonitor() {
                       alt="Video Feed"
                       className="w-full h-full object-cover"
                       onError={(e) => {
-                        // Fallback to showing connection status if stream fails
                         (e.target as HTMLImageElement).style.display = 'none';
                       }}
                     />
@@ -283,18 +300,6 @@ export default function LiveMonitor() {
                       <p className="text-sm text-muted-foreground">
                         Streaming from {backendUrl}
                       </p>
-                      {recognizedStudents.length > 0 && (
-                        <div className="mt-4 p-4 bg-background/50 rounded-lg">
-                          <p className="text-sm text-muted-foreground mb-2">Recognized Students:</p>
-                          <div className="flex flex-wrap gap-2 justify-center">
-                            {recognizedStudents.map((name, idx) => (
-                              <Badge key={idx} className="status-active">
-                                {name}
-                              </Badge>
-                            ))}
-                          </div>
-                        </div>
-                      )}
                     </div>
                   </div>
                 ) : (
@@ -305,7 +310,7 @@ export default function LiveMonitor() {
                         SIGNAL ENCRYPTED / STANDBY
                       </p>
                       <p className="text-sm text-muted-foreground mt-1">
-                        Enter backend URL and click Connect, or use Start Webcam for local camera
+                        Enter backend URL or use Webcam
                       </p>
                     </div>
                   </div>
@@ -355,6 +360,75 @@ export default function LiveMonitor() {
             </CardContent>
           </Card>
         </div>
+
+        {/* --- NEW SECTION START (Based on image_664fe5.png) --- */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          
+          {/* Attendance Logs */}
+          <Card className="bg-card border-border">
+            <CardHeader className="flex flex-row items-center gap-2 pb-2">
+              <Activity className="h-5 w-5 text-emerald-400" />
+              <CardTitle className="text-lg tracking-wide">ATTENDANCE LOGS</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6 pt-4">
+              {ATTENDANCE_LOGS.map((log) => (
+                <div key={log.subject} className="space-y-2">
+                  <div className="flex justify-between items-center text-sm font-medium">
+                    <span className="text-foreground">{log.subject}</span>
+                    <span className="text-foreground">{log.attended}/{log.total}</span>
+                  </div>
+                  {/* Custom Progress Bar */}
+                  <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-emerald-400 rounded-full transition-all duration-500" 
+                      style={{ width: `${(log.attended / log.total) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+
+          {/* Fast Exemption Form */}
+          <Card className="bg-card border-border">
+            <CardHeader className="flex flex-row items-center gap-2 pb-2">
+              <UserPlus className="h-5 w-5 text-blue-400" />
+              <CardTitle className="text-lg tracking-wide">FAST EXEMPTION</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 pt-4">
+              <div className="space-y-2">
+                <Input 
+                  placeholder="Student Name" 
+                  className="bg-secondary/50 border-input"
+                  value={exemptionName}
+                  onChange={(e) => setExemptionName(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <select 
+                  className="w-full h-10 px-3 rounded-md border border-input bg-secondary/50 text-sm"
+                  value={exemptionReason}
+                  onChange={(e) => setExemptionReason(e.target.value)}
+                >
+                  <option value="" disabled>Choose Reason</option>
+                  <option value="medical">Medical Emergency</option>
+                  <option value="od">On Duty (OD)</option>
+                  <option value="sports">Sports</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <Button 
+                className="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium"
+                onClick={handleAddAuthority}
+              >
+                Add Authority
+              </Button>
+            </CardContent>
+          </Card>
+
+        </div>
+        {/* --- NEW SECTION END --- */}
+
       </div>
     </DashboardLayout>
   );
